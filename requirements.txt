@@ -4,3 +4,5 @@ openpyxl
 requests
 gunicorn
 flask-cors
+xlrd
+xlsxwriter
