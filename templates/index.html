@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Sales Order Creator</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { font-family: 'Segoe UI', sans-serif; background: #eef6f9; margin: 0; padding: 20px; }
+    h2 { background-color: #004d99; color: white; padding: 10px; border-radius: 6px; }
+    .section { background-color: white; padding: 20px; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); overflow-x: auto; }
+    label { display: block; margin-top: 10px; }
+    input, select { padding: 6px; margin-bottom: 10px; width: 100%; box-sizing: border-box; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid #ccc; padding: 6px; text-align: left; }
+    .button-row { margin-top: 10px; }
+    button { padding: 10px 16px; margin-right: 10px; background-color: #007acc; border: none; color: white; border-radius: 4px; cursor: pointer; }
+    button:hover { background-color: #005fa3; }
+    .tabs { margin-bottom: 10px; display: flex; align-items: center; }
+    .tabs button.tab-btn { background-color: #ccc; margin-right: 5px; }
+    .tabs button.tab-btn.active { background-color: #007acc; color: white; }
+    .tabs button#addOrderBtn { background-color: #28a745; }
+    .tabs button#addOrderBtn:hover { background-color: #218838; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .delete-btn { background-color: #e74c3c; padding: 4px 10px; font-size: 12px; border-radius: 4px; cursor: pointer; color: white; border: none; }
+    .delete-btn:hover { background-color: #c0392b; }
+    .grid-2col { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; }
+  </style>
+</head>
+<body>
+  <h2>Sales Order Creator</h2>
+  <div class="section">
+    <h4>Upload Excel</h4>
+    <input type="file" id="excelFile" accept=".xlsx" />
+    <button onclick="uploadExcel()">Upload & Fill</button>
+  </div>
+
+  <div class="section">
+    <h4>Orders</h4>
+    <div class="tabs" id="orderTabs">
+      <button id="addOrderBtn" onclick="addOrderForm()">+ Add Order</button>
+    </div>
+    <div id="ordersContainer"></div>
+  </div>
+
+  <div class="section">
+    <h4>Preview & Submit</h4>
+    <div class="button-row">
+      <button onclick="previewJson()">Preview</button>
+      <button onclick="submitData()">Submit</button>
+      <button onclick="clearAll()">Clear All</button>
+    </div>
+    <div id="previewCards" class="row mt-3"></div>
+  </div>
+
+  <script>
+    let orderCount = 0;
+    let currentOrderIndex = 0;
+    let allOrders = [];
+
+    window.onload = () => addOrderForm();
+
+    function clearAll() {
+      document.getElementById('ordersContainer').innerHTML = '';
+      document.getElementById('orderTabs').innerHTML = '<button id="addOrderBtn" onclick="addOrderForm()">+ Add Order</button>';
+      document.getElementById('previewCards').innerHTML = '';
+      orderCount = 0;
+      currentOrderIndex = 0;
+      addOrderForm();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+    function generateOrderFormHTML(data = {}) {
+      const defaultItems = data.items && data.items.length > 0 ? data.items : [{}];
+      const defaultPricing = data.pricing && data.pricing.length > 0 ? data.pricing : [{}];
+
+      return `
+        <div class="section">
+          <div class="grid-2col">
+            <label>Sales Order Type <input name="SalesOrderType" value="${data.SalesOrderType || ''}" /></label>
+            <label>Sales Organization <input name="SalesOrganization" value="${data.SalesOrganization || ''}" /></label>
+            <label>Distribution Channel <input name="DistributionChannel" value="${data.DistributionChannel || ''}" /></label>
+            <label>Organization Division <input name="OrganizationDivision" value="${data.OrganizationDivision || ''}" /></label>
+            <label>Sold To Party <input name="SoldToParty" value="${data.SoldToParty || ''}" /></label>
+            <label>Customer PO <input name="PurchaseOrderByCustomer" value="${data.PurchaseOrderByCustomer || ''}" /></label>
+          </div>
+        </div>
+        <div class="section">
+          <table class="itemTable">
+            <thead><tr><th>Item</th><th>Material</th><th>Qty</th><th>Unit</th><th>Action</th></tr></thead>
+            <tbody>${defaultItems.map(row => `
+              <tr>
+                <td><input value="${row.SalesOrderItem || ''}" /></td>
+                <td><input value="${row.Material || ''}" /></td>
+                <td><input value="${row.RequestedQuantity || ''}" /></td>
+                <td><input value="${row.RequestedQuantityUnit || ''}" /></td>
+                <td><button class="delete-btn" onclick="deleteRow(this, 'item')">Delete</button></td>
+              </tr>`).join('')}</tbody>
+          </table>
+          <button onclick="addRow(this, 'item')">+ Add Item</button>
+        </div>
+        <div class="section">
+          <table class="pricingTable">
+            <thead><tr><th>Item</th><th>Type</th><th>Rate</th><th>Curr</th><th>Qty</th><th>Unit</th><th>Action</th></tr></thead>
+            <tbody>${defaultPricing.map(row => `
+              <tr>
+                <td><input value="${row.SalesOrderItem || ''}" /></td>
+                <td><input value="${row.ConditionType || ''}" /></td>
+                <td><input value="${row.ConditionRateValue || ''}" /></td>
+                <td><input value="${row.ConditionCurrency || ''}" /></td>
+                <td><input value="${row.ConditionQuantity || ''}" /></td>
+                <td><input value="${row.ConditionQuantityUnit || ''}" /></td>
+                <td><button class="delete-btn" onclick="deleteRow(this, 'pricing')">Delete</button></td>
+              </tr>`).join('')}</tbody>
+          </table>
+          <button onclick="addRow(this, 'pricing')">+ Add Pricing</button>
+        </div>`;
+    }
+     function addRow(btn, type) {
+      const tbody = btn.previousElementSibling.querySelector('tbody');
+      tbody.insertAdjacentHTML('beforeend', type === 'item' ?
+        `<tr><td><input /></td><td><input /></td><td><input /></td><td><input /></td><td><button class="delete-btn" onclick="deleteRow(this, 'item')">Delete</button></td></tr>` :
+        `<tr><td><input /></td><td><input /></td><td><input /></td><td><input /></td><td><input /></td><td><input /></td><td><button class="delete-btn" onclick="deleteRow(this, 'pricing')">Delete</button></td></tr>`);
+    }
+
+    function deleteRow(btn, type) {
+      const row = btn.closest('tr');
+      const tbody = row.parentElement;
+      if (tbody.rows.length > 1) row.remove();
+    }
+    function addOrderForm(data = {}) {
+      const index = orderCount++;
+      const tabId = `Order ${100000 + index + 1}`;
+      const tabBtn = document.createElement('button');
+      tabBtn.textContent = tabId;
+      tabBtn.classList.add('tab-btn');
+      tabBtn.onclick = () => switchTab(index);
+      document.getElementById('orderTabs').insertBefore(tabBtn, document.getElementById('addOrderBtn'));
+
+      const container = document.createElement('div');
+      container.className = 'tab-content';
+      container.dataset.index = index;
+      container.innerHTML = generateOrderFormHTML(data);
+      document.getElementById('ordersContainer').appendChild(container);
+      switchTab(index);
+    }
+
+    function switchTab(index) {
+      currentOrderIndex = index;
+      document.querySelectorAll('.tab-content').forEach((tab, i) => {
+        tab.classList.toggle('active', i === index);
+      });
+      document.querySelectorAll('#orderTabs .tab-btn').forEach((btn, i) => {
+        btn.classList.toggle('active', i === index);
+      });
+    }
+
+    function uploadExcel() {
+      const file = document.getElementById("excelFile").files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheet = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+        const grouped = {};
+        sheet.forEach(row => {
+          const id = row.SalesOrderId || 'default';
+          grouped[id] = grouped[id] || { items: [], pricing: [] };
+          if (row.Section === 'Header') Object.assign(grouped[id], row);
+          else if (row.Section === 'Item') grouped[id].items.push(row);
+          else if (row.Section === 'Pricing') grouped[id].pricing.push(row);
+        });
+        clearAll();
+        Object.values(grouped).forEach((order, i) => i === 0 ? populateFirst(order) : addOrderForm(order));
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function populateFirst(data) {
+      const first = document.querySelector('.tab-content');
+      if (!first) return;
+      first.innerHTML = generateOrderFormHTML(data);
+    }
+
+    function previewJson() {
+      allOrders = Array.from(document.querySelectorAll('.tab-content')).map(section => {
+        const get = name => section.querySelector(`[name=${name}]`)?.value || '';
+        const items = Array.from(section.querySelectorAll('.itemTable tbody tr')).map(tr => {
+          const td = tr.querySelectorAll('td input');
+          return {
+            SalesOrderItem: td[0].value,
+            Material: td[1].value,
+            RequestedQuantity: td[2].value,
+            RequestedQuantityUnit: td[3].value,
+            to_PricingElement: { results: [] }
+          };
+        });
+        const pricing = Array.from(section.querySelectorAll('.pricingTable tbody tr')).map(tr => {
+          const td = tr.querySelectorAll('td input');
+          return {
+            SalesOrderItem: td[0].value,
+            ConditionType: td[1].value,
+            ConditionRateValue: td[2].value,
+            ConditionCurrency: td[3].value,
+            ConditionQuantity: td[4].value,
+            ConditionQuantityUnit: td[5].value,
+            TransactionCurrency: td[3].value
+          };
+        });
+        items.forEach(item => item.to_PricingElement.results = pricing.filter(p => p.SalesOrderItem === item.SalesOrderItem));
+        return {
+          SalesOrderType: get('SalesOrderType'),
+          SalesOrganization: get('SalesOrganization'),
+          DistributionChannel: get('DistributionChannel'),
+          OrganizationDivision: get('OrganizationDivision'),
+          SoldToParty: get('SoldToParty'),
+          PurchaseOrderByCustomer: get('PurchaseOrderByCustomer'),
+          to_Item: { results: items }
+        };
+      });
+      displayCards();
+    }
+
+    function displayCards() {
+      const container = document.getElementById('previewCards');
+      container.innerHTML = '';
+      allOrders.forEach((order, i) => {
+        const div = document.createElement('div');
+        div.className = 'col-md-6';
+        const headers = `
+          Type: ${order.SalesOrderType}<br>
+          Org: ${order.SalesOrganization}<br>
+          Channel: ${order.DistributionChannel}<br>
+          Division: ${order.OrganizationDivision}<br>
+          Party: ${order.SoldToParty}<br>
+          PO: ${order.PurchaseOrderByCustomer}`;
+        const itemRows = order.to_Item.results.map(item =>
+          `<tr><td>${item.SalesOrderItem}</td><td>${item.Material}</td><td>${item.RequestedQuantity}</td><td>${item.RequestedQuantityUnit}</td></tr>`).join('');
+        const pricingRows = order.to_Item.results.flatMap(item => item.to_PricingElement.results.map(p =>
+          `<tr><td>${p.SalesOrderItem}</td><td>${p.ConditionType}</td><td>${p.ConditionRateValue}</td><td>${p.ConditionCurrency}</td><td>${p.ConditionQuantity}</td><td>${p.ConditionQuantityUnit}</td></tr>`)).join('');
+        const detailsTable = `
+          <table class="table">
+            <thead><tr><th colspan="4">Items</th></tr></thead>
+            <tr><th>Item</th><th>Material</th><th>Qty</th><th>Unit</th></tr>
+            ${itemRows || '<tr><td colspan="4">No Items</td></tr>'}
+            <thead><tr><th colspan="6">Pricing</th></tr></thead>
+            <tr><th>Item</th><th>Type</th><th>Rate</th><th>Curr</th><th>Qty</th><th>Unit</th></tr>
+            ${pricingRows || '<tr><td colspan="6">No Pricing</td></tr>'}
+          </table>`;
+        div.innerHTML = `
+          <div class="card mb-3">
+            <div class="card-body">
+              <h5 class="card-title">Order ${i + 1}</h5>
+              <p class="card-text">${headers}</p>
+              <button class="btn btn-outline-primary" onclick='viewOrderDetails(this)'>View</button>
+              <div class="details" style="display:none;margin-top:10px;">${detailsTable}</div>
+            </div>
+          </div>`;
+        container.appendChild(div);
+      });
+    }
+
+    function viewOrderDetails(btn) {
+      const div = btn.nextElementSibling;
+      div.style.display = div.style.display === 'none' ? 'block' : 'none';
+    }
+
+    function submitData() {
+      fetch("/create-sales-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(allOrders)
+      })
+      .then(res => res.json())
+      .then(data => {
+        alert("Sales Order submitted successfully!");
+      })
+      .catch(err => alert("Error: " + err));
+    }
+  </script>
+</body>
+</html>
